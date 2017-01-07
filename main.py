@@ -1,5 +1,16 @@
 #!/usr/bin/env python
 
-from zqspy import *
+import zqspy
+import sys
 
-printv('hi', '\n', '\bthis is a test')
+global VERBOSE, LOGGING
+VERBOSE = True
+LOGFILE = None
+LOGFILE = sys.argv[0] + '.log'
+
+def printv(*args):
+	zqspy.printv(*args, verbose=VERBOSE, log=LOGFILE)
+
+printv('hi', '\nthis is a test')
+printv('t', 'WOOOOT!!')
+printv('e', 'oh no, an error!')
