@@ -1,10 +1,30 @@
 #!/usr/bin/env python
 
-from sys import exit
 from pathlib import Path
+import sys, subprocess, datetime, pytz
 
 def print0(*args):
 	print(*args, end='')
+
+def shell_command(*commands):
+	process = subprocess.Popen(list(commands), stdout=subprocess.PIPE)
+	process_stdout = process.communicate()
+	process_stdout = process_stdout[0]
+	process_stdout = process_stdout.decode()
+	process_stdout = process_stdout.replace('\n', '')
+	return process_stdout
+
+def now(fmt=None):
+	dt_fmt = '%m-%d-%y %H:%M:%S %z %Z'
+	dt_str = shell_command('date', '+{}'.format(dt_fmt))
+	dt_dt = datetime.datetime.strptime(dt_str, dt_fmt)
+# 	print(dt_dt)
+
+	if fmt is not None:
+		return dt_dt.strftime(fmt)
+	else:
+		return dt_dt
+
 
 ################################################################################
 
@@ -17,49 +37,109 @@ tab2 = t2 = 'tab2'
 tab3 = t3 = 'tab3'
 
 tab = lambda n: '{{:<{}}}'.format(n * 4).format('')
-formatters = {}
-formatters['message'] = formatters['m'] = '>>> {}'
-formatters['tab0'] = '  > {}'
-formatters['title'] = formatters['t'] = '>>> ~~~ {} ~~~ <<<'
-formatters['error'] = formatters['e'] = '!!! {} !!!'
+# formatters = {}
+# formatters['message'] = formatters['m'] = '>>> {}'
+# formatters['tab0'] = '  > {}'
+# formatters['title'] = formatters['t'] = '>>> ~~~ {} ~~~ <<<'
+# formatters['error'] = formatters['e'] = '!!! {} !!!'
+#
+# for n in range(10):
+# 	formatter = tab(n) + formatters['tab0']
+# 	formatters[n] = formatter
+# 	formatters['tab' + str(n)] = formatter
 
-for n in range(10):
-	formatter = tab(n) + formatters['tab0']
-	formatters[n] = formatter
-	formatters['tab' + str(n)] = formatter
+formatters = {
+	'message': {
+		'prefix': '>>> ',
+		'subprefix': '  > '
+	},
+	'sub': {
+		'prefix': '  > '
+	},
+	'title': {
+		'prefix': '>>> ~~~ ',
+		'subprefix': tab(2),
+		'suffix': ' ~~~ <<<'
+	},
+	'error': {
+		'prefix': '!!! ',
+		'subprefix': tab(1),
+		'suffix': ' !!!'
+	},
+	'nothing': {}
+}
+formatters['m'] = formatters['message']
+formatters['s'] = formatters['sub']
+formatters['>'] = formatters['sub']
+formatters['t'] = formatters['title']
+formatters['e'] = formatters['error']
+formatters[''] = formatters['nothing']
 
-def printv(*args, verbose=True, log=None):
-	args = [arg for arg in args]
-	if args[0] in formatters:
-		fmt = args.pop(0)
+printv_defaults = {
+	'fmt': 'message',
+	'tab': 0,
+	'time': False,
+	'time_fmt': '%m-%d-%y %H:%M:%S',
+	'verbose': True,
+	'log': None,
+	'logfile': None
+}
+
+def printv_prefs(**kwargs):
+	if 'PRINTV_PREFS' not in globals():
+		global PRINTV_PREFS
+		PRINTV_PREFS = printv_defaults
+	for k in kwargs:
+		PRINTV_PREFS[k] = kwargs[k]
+
+def printv(*args, **kwargs):
+	if 'PRINTV_PREFS' in globals():
+		prefs = PRINTV_PREFS
 	else:
-		fmt = 'message'
-	if len(args) > 1:
-		orig_args = args
-		args = []
-		for arg in orig_args:
-			args.append(arg)
-			args.append(' ')
+		prefs = printv_defaults
+	for k in kwargs:
+		if k in prefs:
+			prefs[k] = kwargs[k]
 
-	output = ''
-	bare_formatter = formatters[fmt].format('')
-	for arg in args:
-		arg_output = str(arg)
-		arg_output = arg_output.replace('\n', '\n' + bare_formatter)
-		arg_output = arg_output.replace('\t', tab(1))
-		output += arg_output
-	output = formatters[fmt].format(output)
+	if prefs['verbose'] or (prefs['log'] is not None):
+		output = ''
+		for arg in args:
+			output += str(arg)
+			if len(args) > 1: output += ' '
+		output_lines = output.split('\n')
+		output = ''
+		for l in range(len(output_lines)):
+			line = output_lines[l]
+			if prefs['time'] is not False:
+				if type(prefs['time']) is str:
+					prefs['time_fmt'] = prefs['time']
+				output += '[{}] '.format(now(fmt=prefs['time_fmt']))
+			output += tab(prefs['tab'])
+			if 'prefix' in formatters[prefs['fmt']]:
+				if l == 0 or 'subprefix' not in formatters[prefs['fmt']]:
+					output += formatters[prefs['fmt']]['prefix']
+				else:
+					output += formatters[prefs['fmt']]['subprefix']
+			output += line
+			if 'suffix' in formatters[prefs['fmt']] and l == len(output_lines) - 1:
+				output += formatters[prefs['fmt']]['suffix']
+			output += '\n'
 
-	if verbose:
-		print(output)
-	if log is not None:
-		if not Path(log).parent.is_dir():
-			message = 'parent dir of specified log (`{}\') does not exist'
-			print(formatters['e'].format(message.format(log)))
-			exit(1)
-		with Path(log).open('a+') as log_file:
-			print(repr(output))
-			for line in output.split('\n'):
-				log_file.write(repr(line))
-				#print(repr(line))
+		if prefs['verbose']:
+			print0(output)
+		if prefs['log'] is not None:
+			if type(prefs['log']) is str:
+				prefs['logfile'] = prefs['log']
+			elif prefs['logfile'] is None:
+				prefs['logfile'] = '{}.log'.format(sys.argv[0])
+			assert Path(prefs['logfile']).parent.is_dir(), \
+				'parent dir does not exist for logfile `{}\''.format(prefs['logfile'])
+			with Path(prefs['logfile']).open('a') as logfile:
+				logfile.write(output)
+
+def title(*args, **kwargs): printv(*args, **kwargs, fmt='title')
+def error(*args, **kwargs): printv(*args, **kwargs, fmt='error')
+def cr(): printv(fmt='nothing')
+
+
 
